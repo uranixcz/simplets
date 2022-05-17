@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width" />
+      <title>LETS</title>
+      <style>
+      table, th, td {
+        border: 1px solid black;
+        border-collapse: collapse;
+        padding: 1px 10px;
+      }
+    </style>
+   </head>
+   <body>
+      <h1>ČLETS</h1>
+      <p>Číslo účtu: {{ user.id }}</p>
+      {{#if flash}}
+        <p><b>{{ flash.message }}</b></p>
+      {{/if}}
+      <form action="/logout" method="post" accept-charset="utf-8">
+        <input type="submit" name="logout" id="logout" value="odhlásit" />
+      </form>
+      <p>
+        <b>Zůstatek: {{ user.credit }} kr.</b> |
+        <abbr title="maximální velikost příchozí platby, narůstá s možstvím transakcí">Možno přijmout(?)</abbr>: {{ receive_limit }} kr. |
+        <abbr title="maximální velikost odchozí platby včetně půjčky, narůstá s možstvím transakcí">Možno odeslat(?)</abbr>: {{ send_limit }} kr.
+      </p>
+      <form action="/payment" method="post" accept-charset="utf-8">
+        <label for="payee">číslo příjemce</label>
+        <input type="number" name="payee" id="payee" value="" min="0" />
+        <label for="amount">částka</label>
+        <input type="number" name="amount" id="amount" value="" min="10" />
+        <input type="submit" name="payment" id="payment" value="platba" />
+      </form>
+
+      <!--<a href="/">Hlavní stránka</a>-->
+      <p>Posledních tisíc plateb</p>
+      <table>
+        <tr>
+        <th>datum</th>
+        <th>plátce</th>
+        <th>příjemce</th>
+        <th>částka</th>
+        </tr>
+        {{#each payments}}
+        <tr>
+        <td>{{created}}</td>
+        <td>{{payer}}</td>
+        <td>{{payee}}</td>
+        <td>{{amount}}</td>
+        </tr>
+        {{/each}}
+      </table>
+   </body>
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width" />
+      <title>LETS</title>
+   </head>
+   <body>
+      <h1>Přihlášení do ČLETS</h1>
+
+     <p>Přihlašte se prosím údaji od administrátora.</p>
+
+      {{#if message}}
+         <p>{{ message }}</p>
+      {{/if}}
+
+      <form action="/login" method="post" accept-charset="utf-8">
+         <label for="username">uživatel</label>
+         <input type="text" name="username" id="username" value="" />
+         <label for="password">heslo</label>
+         <input type="password" name="password" id="password" value="" />
+         <p><input type="submit" value="přihlásit"></p>
+      </form>
+
+      <!--<a href="/">Hlavní stránka</a>-->
+      <p>Přihlášení vyžaduje uložení cookie na Vaše zařízení. Žádná osobní data nesbíráme.</p>
+   </body>
+</html>
