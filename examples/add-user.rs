@@ -6,5 +6,5 @@ fn main() {
     let username = args.get(2).expect("user name");
     let password = args.get(3).expect("password");
     let dom = simplets::Domain::new(domname, "", 0);
-    dom.add_user(username, password).expect("database error");
+    println!("{}", dom.add_user(username, password).expect("database error"));
 }

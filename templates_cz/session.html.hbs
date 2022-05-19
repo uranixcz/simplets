@@ -15,33 +15,34 @@
    <body>
       <h1>ČLETS</h1>
       <p>Číslo účtu: {{ user.id }}</p>
+
       {{#if flash}}
         <p><b>{{ flash.message }}</b></p>
       {{/if}}
-      <form action="/logout" method="post" accept-charset="utf-8">
-        <input type="submit" name="logout" id="logout" value="odhlásit" />
-      </form>
+      <a href="/logout">Odhlásit</a> | <a href="password">Změnit heslo</a>
       <p>
         <b>Zůstatek: {{ user.credit }} kr.</b> |
         <abbr title="maximální velikost příchozí platby, narůstá s možstvím transakcí">Možno přijmout(?)</abbr>: {{ receive_limit }} kr. |
-        <abbr title="maximální velikost odchozí platby včetně půjčky, narůstá s možstvím transakcí">Možno odeslat(?)</abbr>: {{ send_limit }} kr.
+        <abbr title="maximální velikost odchozí platby včetně možné bezůročné půjčky, narůstá s možstvím transakcí">Možno odeslat(?)</abbr>: {{ send_limit }} kr.
       </p>
       <form action="/payment" method="post" accept-charset="utf-8">
-        <label for="payee">číslo příjemce</label>
-        <input type="number" name="payee" id="payee" value="" min="0" />
-        <label for="amount">částka</label>
-        <input type="number" name="amount" id="amount" value="" min="10" />
-        <input type="submit" name="payment" id="payment" value="platba" />
+        <label for="payee">číslo příjemce</label><br>
+        <input type="number" name="payee" id="payee" value="" min="0" required autofocus /><br>
+        <label for="amount">částka</label><br>
+        <input type="number" name="amount" id="amount" value="" min="10" required /><br>
+        <label for="message">zpráva</label><br>
+        <input type="text" name="message" id="message" value="" maxlength="140" />
+        <p><input type="submit" name="payment" id="payment" value="platba" /></p>
       </form>
-
-      <!--<a href="/">Hlavní stránka</a>-->
-      <p>Posledních tisíc plateb</p>
+      <hr>
+      <p><b>Posledních tisíc plateb</b></p>
       <table>
         <tr>
         <th>datum</th>
         <th>plátce</th>
         <th>příjemce</th>
         <th>částka</th>
+        <th>zpráva</th>
         </tr>
         {{#each payments}}
         <tr>
@@ -49,6 +50,7 @@
         <td>{{payer}}</td>
         <td>{{payee}}</td>
         <td>{{amount}}</td>
+        <td>{{message}}</td>
         </tr>
         {{/each}}
       </table>

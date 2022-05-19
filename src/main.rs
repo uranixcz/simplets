@@ -27,6 +27,7 @@ use rocket::request::{self, FlashMessage, FromRequest, Request};
 use rocket::response::{Redirect, Flash};
 use rocket::http::{Cookie, CookieJar};
 use rocket::form::Form;
+use rocket::response::content::RawHtml;
 use rocket_dyn_templates::{Template, context};
 use rusqlite::Error;
 
@@ -43,9 +44,16 @@ struct Login<'r> {
 }
 
 #[derive(FromForm)]
-struct Payment {
+struct Password<'r> {
+    old: &'r str,
+    new: &'r str,
+}
+
+#[derive(FromForm)]
+struct Payment<'r> {
     payee: i64,
     amount: usize,
+    message: &'r str,
 }
 
 #[derive(Debug)]
@@ -65,8 +73,9 @@ impl<'r> FromRequest<'r> for User {
 }
 
 #[post("/payment", data = "<payment>")]
-fn payment(user: User, domains: &State<Domains>, payment: Form<Payment>) -> Option<Flash<Redirect>> {
+fn payment(user: User, domains: &State<Domains>, payment: Form<Payment<'_>>) -> Option<Flash<Redirect>> {
     use simplets::SimpletsErr::*;
+    if payment.message.len() > 140 { return Some(Flash::error(Redirect::to(uri!(index)), "Maximální délka zprávy je 140 znaků.")) }
     let mut domain = domains.lock().unwrap();
     let user = domain.get_user(user.0).expect("database error: {}");
     let payee = match domain.get_user(payment.payee) {
@@ -74,13 +83,13 @@ fn payment(user: User, domains: &State<Domains>, payment: Form<Payment>) -> Opti
         Err(Error::QueryReturnedNoRows) => return Some(Flash::error(Redirect::to(uri!(index)), "Příjemce nexistuje")),
         Err(e) => return Some(Flash::error(Redirect::to(uri!(index)), format!("Databázová chyba. Kontaktujte administrátora s podrobnostmi platby<br>{}", e)))
     };
-    let flash = match domain.add_payment(user, payee, payment.amount) {
+    let flash = match domain.add_payment(user, payee, payment.amount, payment.message) {
         Ok(_) => Flash::success(Redirect::to(uri!(index)), "Platba proběhla úspěšně."),
         Err(Db(e)) => Flash::error(Redirect::to(uri!(index)), format!("Databázová chyba. Kontaktujte administrátora s podrobnostmi platby<br>{}", e)),
         Err(PaymentSidesEq) => Flash::error(Redirect::to(uri!(index)), "Nelze poslat sám sobě"),
-        Err(PaymentLessMin(m)) => Flash::error(Redirect::to(uri!(index)), format!("Minimálně lze poslat {} cr.", m)),
+        Err(PaymentLessMin(m)) => Flash::error(Redirect::to(uri!(index)), format!("Minimálně lze poslat {} kr.", m)),
         Err(PaymentSendLimit(_)) => Flash::error(Redirect::to(uri!(index)), "Nedostatek prostředků na účtě"),
-        Err(PaymentReceiveLimit(l)) => Flash::error(Redirect::to(uri!(index)), format!("Příjemce nemůže přijmout více než {} cr.", l)),
+        Err(PaymentReceiveLimit(l)) => Flash::error(Redirect::to(uri!(index)), format!("Příjemce nemůže přijmout více než {} kr.", l)),
         _ => Flash::error(Redirect::to(uri!(index)), "Neznámá chyba. Kontaktujte administrátora s podrobnostmi platby")
     };
     Some(flash)
@@ -123,21 +132,48 @@ fn login_page(flash: Option<FlashMessage<'_>>) -> Template {
 #[post("/login", data = "<login>")]
 fn post_login(jar: &CookieJar<'_>, login: Form<Login<'_>>, domains: &State<Domains>) -> Result<Redirect, Flash<Redirect>> {
     let domain = domains.lock().unwrap();
-    let user = domain.get_user_by_name(login.username).expect("login problem");
+    let user = if let Ok(u) = domain.get_user_by_name(login.username) { u }
+    else { return Err(Flash::error(Redirect::to(uri!(login_page)), "Špatné jméno/heslo.")) };
     drop(domain);
     let hash = simplets::hash(login.password);
-    if login.username == user.name && hash == user.password {
+    if hash == user.password {
         jar.add_private(Cookie::new("user_id", user.id.to_string()));
         Ok(Redirect::to(uri!(index)))
     } else {
-        Err(Flash::error(Redirect::to(uri!(login_page)), "Invalid username/password."))
+        Err(Flash::error(Redirect::to(uri!(login_page)), "Špatné jméno/heslo."))
     }
 }
 
-#[post("/logout")]
+#[get("/logout")]
 fn logout(jar: &CookieJar<'_>) -> Flash<Redirect> {
     jar.remove_private(Cookie::named("user_id"));
     Flash::success(Redirect::to(uri!(login_page)), "Odhlášení proběhlo úspěšně.")
+}
+
+#[post("/password", data = "<password>")]
+fn password(user: User, domains: &State<Domains>, password: Form<Password<'_>>) -> Option<Flash<Redirect>> {
+    let domain = domains.lock().unwrap();
+    if simplets::hash(password.old) == domain.get_user(user.0).expect("database error: {}").password {
+        if domain.set_password(user.0, password.new).is_ok() {
+            Some(Flash::success(Redirect::to(uri!(index)), "Nové heslo nastaveno."))
+        } else { Some(Flash::error(Redirect::to(uri!(index)), "Chyba při změně hesla.")) }
+    } else { Some(Flash::error(Redirect::to(uri!(index)), "Původní heslo je neplatné.")) }
+}
+
+#[get("/password")]
+fn password_page(_user: User) -> RawHtml<&'static str> {
+    RawHtml(r#"<form action="/password" method="post" accept-charset="utf-8">
+         <label for="old">Původní heslo</label><br>
+         <input type="password" name="old" id="old" value="" required autofocus /><br>
+         <label for="new">Nové heslo</label><br>
+         <input type="password" name="new" id="new" value="" required /><br>
+         <p><input type="submit" value="Změnit heslo"></p>
+      </form>"#)
+}
+
+#[get("/password", rank = 2)]
+fn no_auth_password() -> Redirect {
+    Redirect::to(uri!(login_page))
 }
 
 #[rocket::main]
@@ -149,7 +185,7 @@ async fn main() -> Result<(), rocket::Error> {
         .attach(Template::fairing())
         .manage(Mutex::new(clets))
         //.mount("/", routes![no_auth_index])
-        .mount("/", routes![index, no_auth_index, login, login_page, post_login, logout, payment, no_auth_payment]);
+        .mount("/", routes![index, no_auth_index, login, login_page, post_login, logout, payment, no_auth_payment, password, no_auth_password, password_page]);
 
     let conf: Result<Vec<String>, figment::Error> = rct.figment().extract_inner("template_dir");
     let _result = rct.manage(TemplateDir(if let Ok(dir) = conf {!dir.is_empty()} else {false}))

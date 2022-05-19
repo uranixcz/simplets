@@ -29,7 +29,7 @@ pub struct User {
     pub payments_out: usize,
     pub password: String,
     pub created: String,
-    pub disabled: bool,
+    pub permission: i64,
 }
 
 impl User {
@@ -61,6 +61,7 @@ pub struct Payment {
     pub payee: usize,
     pub amount: usize,
     pub created: String,
+    pub message: String,
 }
 
 #[derive(Debug)]
@@ -103,7 +104,7 @@ impl Domain {
                                payments_out: row.get(4)?,
                                password: row.get(5)?,
                                created: row.get(6)?,
-                               disabled: row.get(7)?,
+                               permission: row.get(7)?,
                            })
                        })
     }
@@ -119,7 +120,7 @@ impl Domain {
                                     payments_out: row.get(4)?,
                                     password: row.get(5)?,
                                     created: row.get(6)?,
-                                    disabled: row.get(7)?,
+                                    permission: row.get(7)?,
                                 })
                             })
     }
@@ -135,7 +136,7 @@ impl Domain {
                 payments_out: row.get(4)?,
                 password: row.get(5)?,
                 created: row.get(6)?,
-                disabled: row.get(7)?,
+                permission: row.get(7)?,
             })
         })?;
         let mut vec = Vec::new();
@@ -151,13 +152,20 @@ impl Domain {
     pub fn add_user(&self, name: &str, password: &str) -> Result<usize> {
         let hash = hash(password);
         let timestamp = Local::now().timestamp();
-        self.conn.execute("INSERT INTO user (id, name, credit, payments_in, payments_out, password, created, disabled)\
-    VALUES (?1, ?2, 0, 0, 0, ?3, datetime('now', 'localtime'), 0)",
-                     params![timestamp, name, hash])
+        self.conn.execute("INSERT INTO user (id, name, credit, payments_in, payments_out, password, created, permission)\
+    VALUES (?1, ?2, 0, 0, 0, ?3, datetime('now', 'localtime'), 1)",
+                          params![timestamp, name, hash])?;
+        Ok(timestamp.try_into().unwrap()) //err will not happen unless someone has bad clock
+    }
+
+    pub fn set_password(&self, user_id: i64, new_password: &str) -> Result<usize> {
+        let hash = hash(new_password);
+        self.conn.execute("UPDATE user SET password = ?1 WHERE id = ?2",
+                          params![hash, user_id])
     }
 
     pub fn get_payments(&self) -> Result<Vec<Payment>> {
-        let mut stmt = self.conn.prepare("SELECT id, payer, payee, amount, created FROM payment")?;
+        let mut stmt = self.conn.prepare("SELECT * FROM payment")?;
         let iter = stmt.query_map([], |row| {
             Ok(Payment {
                 id: row.get(0)?,
@@ -165,6 +173,7 @@ impl Domain {
                 payee: row.get(2)?,
                 amount: row.get(3)?,
                 created: row.get(4)?,
+                message: row.get(5)?,
             })
         })?;
         let mut vec = Vec::new();
@@ -178,7 +187,7 @@ impl Domain {
     }
 
     pub fn get_payments_by_user(&self, user: i64) -> Result<Vec<Payment>> {
-        let mut stmt = self.conn.prepare("SELECT id, payer, payee, amount, created FROM payment \
+        let mut stmt = self.conn.prepare("SELECT * FROM payment \
         WHERE payer = ?1 OR payee = ?1 ORDER BY created DESC")?;
         let iter = stmt.query_map([&user], |row| {
             Ok(Payment {
@@ -187,6 +196,7 @@ impl Domain {
                 payee: row.get(2)?,
                 amount: row.get(3)?,
                 created: row.get(4)?,
+                message: row.get(5)?,
             })
         })?;
         let mut vec = Vec::new();
@@ -199,9 +209,9 @@ impl Domain {
         Ok(vec)
     }
 
-    pub fn add_payment(&mut self, payer: User, payee: User, amount: usize) -> Result<(), SimpletsErr> {
+    pub fn add_payment(&mut self, payer: User, payee: User, amount: usize, message: &str) -> Result<(), SimpletsErr> {
         let tx = self.conn.transaction()?;
-        if amount < self.minimal_amount { return Err(SimpletsErr::PaymentLessMin(amount)); }
+        if amount < self.minimal_amount { return Err(SimpletsErr::PaymentLessMin(self.minimal_amount)); }
         if payer.id == payee.id { return Err(SimpletsErr::PaymentSidesEq); }
         let limit = payer.payment_limit(&payee);
         match limit {
@@ -211,8 +221,8 @@ impl Domain {
         }
         tx.execute("UPDATE user SET credit = credit - ?1, payments_out = payments_out + 1 WHERE id = ?2", params![amount, payer.id])?;
         tx.execute("UPDATE user SET credit = credit + ?1, payments_in = payments_in + 1 WHERE id = ?2", params![amount, payee.id])?;
-        tx.execute("INSERT INTO payment (payer, payee, amount, created)\
-        VALUES (?1, ?2, ?3, datetime('now', 'localtime'))", params![&payer.id, &payee.id, &amount])?;
+        tx.execute("INSERT INTO payment (payer, payee, amount, created, message)\
+        VALUES (?1, ?2, ?3, datetime('now', 'localtime'), ?4)", params![&payer.id, &payee.id, &amount, &message])?;
         tx.commit()?;
         Ok(())
     }
@@ -233,15 +243,16 @@ impl Domain {
                     payments_out    INTEGER NOT NULL,
                     password        TEXT NOT NULL,
                     created         TEXT NOT NULL,
-                    disabled        INTEGER NOT NULL
+                    permission      INTEGER NOT NULL
                     )", [])
                 .expect("create table");
             conn.execute("CREATE TABLE payment (
                     id              INTEGER PRIMARY KEY,
-                    payer          INTEGER NOT NULL,
-                    payee        INTEGER NOT NULL,
+                    payer           INTEGER NOT NULL,
+                    payee           INTEGER NOT NULL,
                     amount          INTEGER NOT NULL,
                     created         TEXT NOT NULL,
+                    message         TEXT NOT NULL,
                     FOREIGN KEY(payer) REFERENCES user(id),
                     FOREIGN KEY(payee) REFERENCES user(id)
                     )", [])
