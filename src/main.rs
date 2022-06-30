@@ -52,7 +52,7 @@ struct Password<'r> {
 #[derive(FromForm)]
 struct Payment<'r> {
     payee: i64,
-    amount: usize,
+    amount: u64,
     message: &'r str,
 }
 
@@ -74,7 +74,7 @@ impl<'r> FromRequest<'r> for User {
 
 #[post("/payment", data = "<payment>")]
 fn payment(user: User, domains: &State<Domains>, payment: Form<Payment<'_>>) -> Option<Flash<Redirect>> {
-    use simplets::SimpletsErr::*;
+    use simplets::Outcome::*;
     if payment.message.len() > 140 { return Some(Flash::error(Redirect::to(uri!(index)), "Maximální délka zprávy je 140 znaků.")) }
     let mut domain = domains.lock().unwrap();
     let user = domain.get_user(user.0).expect("database error: {}");

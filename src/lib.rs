@@ -15,6 +15,9 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#[cfg(test)]
+mod tests;
+
 use chrono::Local;
 use rusqlite::{Connection, Error, params, Result};
 use sha2::{Sha256, Digest};
@@ -24,59 +27,59 @@ use serde::Serialize;
 pub struct User {
     pub id: i64,
     pub name: String,
-    pub credit: isize,
-    pub payments_in: usize,
-    pub payments_out: usize,
+    pub credit: i64,
+    pub payments_in: u64,
+    pub payments_out: u64,
     pub password: String,
     pub created: String,
     pub permission: i64,
 }
 
 impl User {
-    pub fn receive_limit(&self) -> usize {
-        (((self.payments_out as f64).sqrt() * 2500.0) as isize + 2500 - self.credit) as usize
+    pub fn receive_limit(&self) -> i64 {
+        (((self.payments_out + 1) as f64).sqrt() * 2500.0) as i64 - self.credit
     }
 
-    pub fn credit_limit(&self) -> isize {
-        ((self.payments_in as f64 * 2.0).powf(0.65) * 200.0) as isize
+    pub fn credit_limit(&self) -> i64 {
+        (((self.payments_in + 1) as f64).sqrt() * 1000.0) as i64 - 1000
     }
 
-    pub fn send_limit(&self) -> usize {
-        (self.credit_limit() + self.credit) as usize
+    pub fn send_limit(&self) -> i64 {
+        self.credit_limit() + self.credit
     }
 
-    pub fn payment_limit(&self, payee: &User) -> SimpletsErr {
+    pub fn payment_limit(&self, payee: &User) -> Outcome {
         let send_limit = self.send_limit();
         let receive_limit = payee.receive_limit();
         if send_limit <= receive_limit {
-            SimpletsErr::PaymentSendLimit(send_limit)
-        } else { SimpletsErr::PaymentReceiveLimit(receive_limit) }
+            Outcome::PaymentSendLimit(send_limit)
+        } else { Outcome::PaymentReceiveLimit(receive_limit) }
     }
 }
 
 #[derive(Debug, Serialize)]
 pub struct Payment {
-    pub id: usize,
-    pub payer: usize,
-    pub payee: usize,
-    pub amount: usize,
+    pub id: u64,
+    pub payer: u64,
+    pub payee: u64,
+    pub amount: u64,
     pub created: String,
     pub message: String,
 }
 
-#[derive(Debug)]
-pub enum SimpletsErr {
+#[derive(Debug, PartialEq)]
+pub enum Outcome {
     Db(Error),
-    PaymentLessMin(usize),
+    PaymentLessMin(u64),
     PaymentSidesEq,
-    PaymentReceiveLimit(usize),
-    PaymentSendLimit(usize),
+    PaymentReceiveLimit(i64),
+    PaymentSendLimit(i64),
     MustNotHappen,
 }
 
-impl From<Error> for SimpletsErr {
+impl From<Error> for Outcome {
     fn from(e: Error) -> Self {
-        SimpletsErr::Db(e)
+        Outcome::Db(e)
     }
 }
 
@@ -84,11 +87,11 @@ pub struct Domain {
     pub name: String,
     pub description: String,
     pub conn: Connection,
-    pub minimal_amount: usize,
+    pub minimal_amount: u64,
 }
 
 impl Domain {
-    pub fn new(name: &str, description: &str, minimal_amount: usize) -> Self {
+    pub fn new(name: &str, description: &str, minimal_amount: u64) -> Self {
         let conn = Domain::init_database(name);
         Domain {name: name.to_string(), description: description.to_string(), conn, minimal_amount}
     }
@@ -149,7 +152,7 @@ impl Domain {
         Ok(vec)
     }
 
-    pub fn add_user(&self, name: &str, password: &str) -> Result<usize> {
+    pub fn add_user(&self, name: &str, password: &str) -> Result<u64> {
         let hash = hash(password);
         let timestamp = Local::now().timestamp();
         self.conn.execute("INSERT INTO user (id, name, credit, payments_in, payments_out, password, created, permission)\
@@ -209,15 +212,15 @@ impl Domain {
         Ok(vec)
     }
 
-    pub fn add_payment(&mut self, payer: User, payee: User, amount: usize, message: &str) -> Result<(), SimpletsErr> {
+    pub fn add_payment(&mut self, payer: User, payee: User, amount: u64, message: &str) -> Result<(), Outcome> {
         let tx = self.conn.transaction()?;
-        if amount < self.minimal_amount { return Err(SimpletsErr::PaymentLessMin(self.minimal_amount)); }
-        if payer.id == payee.id { return Err(SimpletsErr::PaymentSidesEq); }
+        if amount < self.minimal_amount { return Err(Outcome::PaymentLessMin(self.minimal_amount)); }
+        if payer.id == payee.id { return Err(Outcome::PaymentSidesEq); }
         let limit = payer.payment_limit(&payee);
         match limit {
-            SimpletsErr::PaymentSendLimit(l) => if amount > l { return Err(limit) },
-            SimpletsErr::PaymentReceiveLimit(l) => if amount > l { return Err(limit) },
-            _ => return Err(SimpletsErr::MustNotHappen)
+            Outcome::PaymentSendLimit(l) => if amount as i64 > l { return Err(limit) },
+            Outcome::PaymentReceiveLimit(l) => if amount as i64 > l { return Err(limit) },
+            _ => return Err(Outcome::MustNotHappen)
         }
         tx.execute("UPDATE user SET credit = credit - ?1, payments_out = payments_out + 1 WHERE id = ?2", params![amount, payer.id])?;
         tx.execute("UPDATE user SET credit = credit + ?1, payments_in = payments_in + 1 WHERE id = ?2", params![amount, payee.id])?;
@@ -266,29 +269,5 @@ pub fn hash(data: impl AsRef<[u8]>) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
     hex::encode(hasher.finalize())
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::User;
-
-    #[test]
-    fn payment_limit1() {
-        let payer = User::new_icp(0, 1999, 1);
-        let u2 = User::new_icp(1, 0, 1);
-        assert_eq!(payer.payment_limit(&u2), 2099);
-    }
-    #[test]
-    fn payment_limit2() {
-        let payer = User::new_icp(0, 2001, 1);
-        let u2 = User::new_icp(1, 0, 0);
-        assert_eq!(payer.payment_limit(&u2), 2000);
-    }
-    #[test]
-    fn payment_limit3() {
-        let payer = User::new_icp(0, 3200, 3);
-        let u2 = User::new_icp(1, -100, 2);
-        assert_eq!(payer.payment_limit(&u2), 2900);
-    }
 }
 
