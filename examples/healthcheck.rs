@@ -5,6 +5,7 @@ fn main() {
     let domname = args.get(1).expect("domain name");
     let dom = simplets::Domain::new(domname, "", 0);
     let users = dom.get_users().unwrap();
+    println!("found {} users", users.len());
     let sum: i64 = users.iter().map(|u| u.credit).sum();
     assert_eq!(sum, 0);
     for u in users.iter() {

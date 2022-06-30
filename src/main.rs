@@ -178,12 +178,12 @@ fn no_auth_password() -> Redirect {
 
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
-    let clets = Domain::new("clets", "", 10);
+    let lets = Domain::new("lets", "", 10);
 
     //let rct = rocket::ignite()
     let rct = rocket::build()
         .attach(Template::fairing())
-        .manage(Mutex::new(clets))
+        .manage(Mutex::new(lets))
         //.mount("/", routes![no_auth_index])
         .mount("/", routes![index, no_auth_index, login, login_page, post_login, logout, payment, no_auth_payment, password, no_auth_password, password_page]);
 

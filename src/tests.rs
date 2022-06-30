@@ -36,4 +36,7 @@ fn payment_limit3() {
 fn held_credit_over_limit() {
     let user = new_user(0, 10000, 0, 0);
     assert_eq!(user.receive_limit(), -7500);
+    let u2 = new_user(1, 10, 0, 0);
+    // this is solved by Domain.minimal_amount
+    assert_eq!(u2.payment_limit(&user), Outcome::PaymentReceiveLimit(-7500));
 }
